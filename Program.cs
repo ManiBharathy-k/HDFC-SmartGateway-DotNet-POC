@@ -73,7 +73,7 @@ app.MapPost("/api/payments/session", async (
     var body = JsonSerializer.Serialize(requestBody, jsonOptions);
     return await HdfcApi.SendAsync(
         clients.CreateClient("Hdfc"), config, HttpMethod.Post, "/session",
-        body, null, cancellationToken);
+        body, string.IsNullOrWhiteSpace(input.CustomerId) ? input.OrderId : input.CustomerId, cancellationToken);
 });
 
 // Fetch the authoritative server-side order status from HDFC.
