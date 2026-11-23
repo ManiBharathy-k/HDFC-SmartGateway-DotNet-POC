@@ -19,7 +19,7 @@ The API key was blank in the configuration shared with us. The response key was 
 
 - .NET 8 SDK
 - HDFC SmartGateway UAT merchant access
-- API key and response key from the HDFC/Juspay merchant dashboard
+- HDFC API key from the merchant dashboard; Response Key only if signed return verification is enabled
 - A public HTTPS return URL on your application (localhost is not reachable by HDFC servers)
 
 ## Setup
@@ -101,7 +101,7 @@ Example request:
 }
 \`\`\`
 
-The service sends a real authenticated request to HDFC's `/session` endpoint using Basic Auth (API key as username, empty password), `x-merchantid`, and `x-routing-id`. The response is HDFC's actual response. It should contain the order status and payment link/SDK payload as defined by HDFC. Use the returned payment link; do not construct one yourself.
+The service sends a real authenticated request to the HDFC endpoint currently configured in `Program.cs`, using Basic Auth (API key as username, empty password), `x-merchantid`, and the configured routing/customer ID header. These request details must match the Basic Auth integration guide provisioned for your merchant. The response is passed through from HDFC; use only the payment link returned by HDFC.
 
 ## Check order status
 
@@ -127,7 +127,7 @@ HDFC's signed return flow uses \`signature\` and \`signature_algorithm\` query p
 - Calculate HMAC-SHA256 using the response key.
 - Base64-encode and URL-encode the hash before comparing.
 
-The endpoint returns whether the signature was valid. **A valid redirect signature is not itself proof that an order is paid.** Always query HDFC order status before fulfilling goods/services.
+The endpoint reports whether the signature was valid, or explicitly reports that verification was disabled. **An unverified redirect and a valid redirect signature are both insufficient on their own to prove payment.** Always query HDFC order status server-to-server before fulfilling goods/services.
 
 Enable signed responses in the HDFC merchant dashboard if required for this flow. The return URL must be a public HTTPS endpoint, have no query parameters in the configured base URL, and must not redirect to another URL.
 
@@ -143,7 +143,7 @@ Enable signed responses in the HDFC merchant dashboard if required for this flow
 
 ## Not yet included
 
-This POC covers session creation, order status lookup, and signed return verification. Refunds, cancellations, capture/void flows, webhook event handling, frontend SDK integration, and durable merchant order storage should be added only against the merchant's exact enabled HDFC product/API specification.
+This POC includes session creation, order status lookup, and optional signed return verification. Refunds, cancellations, capture/void flows, webhook event handling, frontend SDK integration, and durable merchant order storage should be added only against the merchant's exact enabled HDFC product/API specification.
 
 ## Documentation
 
