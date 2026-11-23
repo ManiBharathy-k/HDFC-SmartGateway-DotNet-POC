@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -132,7 +131,7 @@ app.MapGet("/api/payments/return", (HttpRequest request) =>
 
     var canonical = HdfcSignature.BuildCanonicalString(query);
     var expected = HdfcSignature.Compute(canonical, config.ResponseKey);
-    var received = Uri.UnescapeDataString(suppliedSignature);
+    var received = suppliedSignature;
 
     var verified = CryptographicOperations.FixedTimeEquals(
         Encoding.UTF8.GetBytes(expected),
