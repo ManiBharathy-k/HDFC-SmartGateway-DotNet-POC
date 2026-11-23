@@ -40,7 +40,7 @@ app.MapPost("/api/payments/session", async (
     CancellationToken cancellationToken) =>
 {
     var config = HdfcConfig.Load();
-    var error = config.Validate(requireResponseKey: false);
+    var error = config.Validate();
     if (error is not null)
         return Results.Problem(title: "HDFC sandbox configuration is incomplete",
             detail: error, statusCode: StatusCodes.Status503ServiceUnavailable);
@@ -84,7 +84,7 @@ app.MapGet("/api/payments/status/{orderId}", async (
     CancellationToken cancellationToken) =>
 {
     var config = HdfcConfig.Load();
-    var error = config.Validate(requireResponseKey: false);
+    var error = config.Validate();
     if (error is not null)
         return Results.Problem(title: "HDFC sandbox configuration is incomplete",
             detail: error, statusCode: StatusCodes.Status503ServiceUnavailable);
@@ -103,49 +103,64 @@ app.MapGet("/api/payments/status/{orderId}", async (
 });
 
 // HDFC returns the customer to this URL after checkout.
-// Signature validation authenticates the redirect data; it does NOT replace an order-status API call.
+// Signature verification is optional for this POC. Regardless of this setting,
+// the merchant backend MUST fetch the order status from HDFC before fulfilling an order.
 app.MapGet("/api/payments/return", (HttpRequest request) =>
 {
     var config = HdfcConfig.Load();
-    if (string.IsNullOrWhiteSpace(config.ResponseKey))
-        return Results.Problem(title: "HDFC response key is not configured",
-            detail: "Set HDFC_RESPONSE_KEY to verify signed return parameters.",
-            statusCode: StatusCodes.Status503ServiceUnavailable);
-
     var query = request.Query.ToDictionary(
         pair => pair.Key,
         pair => pair.Value.ToString(),
         StringComparer.Ordinal);
 
+    var orderId = query.TryGetValue("order_id", out var id) ? id : null;
+    var returnedStatus = query.TryGetValue("status", out var status) ? status : null;
+
+    if (!config.VerifyReturnSignature)
+    {
+        return Results.Ok(new
+        {
+            signatureVerified = false,
+            signatureVerification = "disabled",
+            orderId,
+            returnedStatus,
+            message = "Return received without signature verification. This is not proof of payment. Fetch the order status from HDFC server-to-server before marking the order paid."
+        });
+    }
+
+    if (string.IsNullOrWhiteSpace(config.ResponseKey))
+        return Results.Problem(title: "HDFC response key is not configured",
+            detail: "HDFC_VERIFY_RETURN_SIGNATURE is true but HDFC_RESPONSE_KEY is empty.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+
     var suppliedSignature = query.TryGetValue("signature", out var sig) ? sig : null;
     var algorithm = query.TryGetValue("signature_algorithm", out var alg) ? alg : null;
 
     if (string.IsNullOrWhiteSpace(suppliedSignature))
-        return Results.BadRequest(new { verified = false, error = "Missing signature in HDFC return parameters." });
+        return Results.BadRequest(new { signatureVerified = false, error = "Missing signature in HDFC return parameters." });
 
     if (!string.Equals(algorithm, "HMAC-SHA256", StringComparison.OrdinalIgnoreCase))
-        return Results.BadRequest(new { verified = false, error = "Unsupported or missing signature_algorithm." });
+        return Results.BadRequest(new { signatureVerified = false, error = "Unsupported or missing signature_algorithm." });
 
     query.Remove("signature");
     query.Remove("signature_algorithm");
 
     var canonical = HdfcSignature.BuildCanonicalString(query);
     var expected = HdfcSignature.Compute(canonical, config.ResponseKey);
-    var received = suppliedSignature;
-
     var verified = CryptographicOperations.FixedTimeEquals(
         Encoding.UTF8.GetBytes(expected),
-        Encoding.UTF8.GetBytes(received));
+        Encoding.UTF8.GetBytes(suppliedSignature));
 
     if (!verified)
         return Results.Unauthorized();
 
     return Results.Ok(new
     {
-        verified = true,
+        signatureVerified = true,
+        signatureVerification = "valid",
         message = "HDFC return signature verified. Fetch the order status from HDFC before marking the order paid.",
-        orderId = query.TryGetValue("order_id", out var id) ? id : null,
-        status = query.TryGetValue("status", out var status) ? status : null,
+        orderId,
+        returnedStatus,
         signatureAlgorithm = algorithm
     });
 });
@@ -195,7 +210,8 @@ public sealed record HdfcConfig(
     string PaymentPageClientId,
     string? ResponseKey,
     string? ReturnUrl,
-    bool EnableLogging)
+    bool EnableLogging,
+    bool VerifyReturnSignature)
 {
     public static HdfcConfig Load() => new(
         Environment.GetEnvironmentVariable("HDFC_BASE_URL") ?? "https://smartgateway.hdfcuat.bank.in",
@@ -204,9 +220,10 @@ public sealed record HdfcConfig(
         Environment.GetEnvironmentVariable("HDFC_PAYMENT_PAGE_CLIENT_ID") ?? "hdfcmaster",
         Environment.GetEnvironmentVariable("HDFC_RESPONSE_KEY"),
         Environment.GetEnvironmentVariable("HDFC_RETURN_URL"),
-        string.Equals(Environment.GetEnvironmentVariable("HDFC_ENABLE_LOGGING"), "true", StringComparison.OrdinalIgnoreCase));
+        string.Equals(Environment.GetEnvironmentVariable("HDFC_ENABLE_LOGGING"), "true", StringComparison.OrdinalIgnoreCase),
+        string.Equals(Environment.GetEnvironmentVariable("HDFC_VERIFY_RETURN_SIGNATURE"), "true", StringComparison.OrdinalIgnoreCase));
 
-    public string? Validate(bool requireResponseKey)
+    public string? Validate()
     {
         if (!Uri.TryCreate(BaseUrl, UriKind.Absolute, out var baseUri) ||
             baseUri.Scheme != Uri.UriSchemeHttps)
@@ -224,8 +241,6 @@ public sealed record HdfcConfig(
         if (string.IsNullOrWhiteSpace(PaymentPageClientId))
             return "Set HDFC_PAYMENT_PAGE_CLIENT_ID (hdfcmaster for sandbox).";
 
-        if (requireResponseKey && string.IsNullOrWhiteSpace(ResponseKey))
-            return "Set HDFC_RESPONSE_KEY.";
 
         return null;
     }
