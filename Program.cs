@@ -286,7 +286,7 @@ public static class HdfcSignature
 {
     // HDFC's documented return-URL canonicalization:
     // URL-encode key/value pairs, sort by encoded key, join with '&',
-    // URL-encode the joined string, HMAC-SHA256, then URL-encode Base64 hash.
+    // URL-encode the joined string, then calculate HMAC-SHA256 and Base64-encode it.
     public static string BuildCanonicalString(IDictionary<string, string> parameters)
     {
         var encoded = parameters
