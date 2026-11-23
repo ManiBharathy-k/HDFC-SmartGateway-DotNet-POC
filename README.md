@@ -53,12 +53,14 @@ dotnet run --urls http://localhost:5000
 
 ## Run
 
+Clone this repository and run it directly:
+
 ```bash
-dotnet new web -n HDFCSmartGatewayPOC
-cd HDFCSmartGatewayPOC
+git clone https://github.com/ManiBharathy-k/HDFC-SmartGateway-DotNet-POC.git
+cd HDFC-SmartGateway-DotNet-POC
 ```
 
-Replace the generated `Program.cs` with this repository's `Program.cs`, configure environment variables, and run:
+Configure environment variables as described above, then run:
 
 ```bash
 dotnet run --urls http://localhost:5000
