@@ -1,4 +1,3 @@
-using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -111,7 +110,7 @@ static async Task<IResult> ForwardAsync(
             statusCode: StatusCodes.Status500InternalServerError);
     }
 
-    var target = new Uri(config.BaseUrl!, path.TrimStart('/'));
+    var target = new Uri(config.BaseUrl!.TrimEnd('/') + "/" + path.TrimStart('/'), UriKind.Absolute);
     using var request = new HttpRequestMessage(method, target);
 
     var credentials = Convert.ToBase64String(
