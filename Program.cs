@@ -46,7 +46,8 @@ app.MapPost("/api/payments/session", async (
         return Results.Problem(title: "HDFC sandbox configuration is incomplete",
             detail: error, statusCode: StatusCodes.Status503ServiceUnavailable);
 
-    var validation = input.Validate();
+    var effectiveReturnUrl = string.IsNullOrWhiteSpace(input.ReturnUrl) ? config.ReturnUrl : input.ReturnUrl;
+    var validation = input.Validate(effectiveReturnUrl);
     if (validation is not null)
         return Results.BadRequest(new { error = validation });
 
@@ -58,7 +59,7 @@ app.MapPost("/api/payments/session", async (
         ["customer_id"] = input.CustomerId ?? "",
         ["payment_page_client_id"] = config.PaymentPageClientId,
         ["action"] = "paymentPage",
-        ["return_url"] = input.ReturnUrl,
+        ["return_url"] = effectiveReturnUrl,
         ["customer_email"] = input.CustomerEmail,
         ["customer_phone"] = input.CustomerPhone,
         ["first_name"] = input.FirstName,
@@ -160,12 +161,12 @@ public sealed class CreatePaymentRequest
     public string? CustomerId { get; set; }
     public string? CustomerEmail { get; set; }
     public string? CustomerPhone { get; set; }
-    public string ReturnUrl { get; set; } = "";
+    public string? ReturnUrl { get; set; }
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
     public string? Description { get; set; }
 
-    public string? Validate()
+    public string? Validate(string? returnUrl)
     {
         if (string.IsNullOrWhiteSpace(OrderId) || OrderId.Length > 20 ||
             !OrderId.All(char.IsLetterOrDigit))
@@ -177,7 +178,7 @@ public sealed class CreatePaymentRequest
         if (string.IsNullOrWhiteSpace(CustomerEmail) && string.IsNullOrWhiteSpace(CustomerPhone))
             return "Provide at least customerEmail or customerPhone.";
 
-        if (!Uri.TryCreate(ReturnUrl, UriKind.Absolute, out var returnUri) ||
+        if (!Uri.TryCreate(returnUrl, UriKind.Absolute, out var returnUri) ||
             returnUri.Scheme != Uri.UriSchemeHttps ||
             !string.IsNullOrEmpty(returnUri.Query) ||
             !string.IsNullOrEmpty(returnUri.UserInfo) ||
@@ -194,7 +195,7 @@ public sealed record HdfcConfig(
     string ApiKey,
     string PaymentPageClientId,
     string? ResponseKey,
-    string ApiVersion,
+    string? ReturnUrl,
     bool EnableLogging)
 {
     public static HdfcConfig Load() => new(
@@ -203,7 +204,7 @@ public sealed record HdfcConfig(
         Environment.GetEnvironmentVariable("HDFC_API_KEY") ?? "",
         Environment.GetEnvironmentVariable("HDFC_PAYMENT_PAGE_CLIENT_ID") ?? "hdfcmaster",
         Environment.GetEnvironmentVariable("HDFC_RESPONSE_KEY"),
-        Environment.GetEnvironmentVariable("HDFC_API_VERSION") ?? "2024-06-24",
+        Environment.GetEnvironmentVariable("HDFC_RETURN_URL"),
         string.Equals(Environment.GetEnvironmentVariable("HDFC_ENABLE_LOGGING"), "true", StringComparison.OrdinalIgnoreCase));
 
     public string? Validate(bool requireResponseKey)
@@ -248,7 +249,6 @@ public static class HdfcApi
         var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes(config.ApiKey + ":"));
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", basic);
         request.Headers.TryAddWithoutValidation("x-merchantid", config.MerchantId);
-        request.Headers.TryAddWithoutValidation("version", config.ApiVersion);
         request.Headers.Accept.ParseAdd("application/json");
 
         if (!string.IsNullOrWhiteSpace(routingId))
@@ -307,6 +307,6 @@ public static class HdfcSignature
         var hash = HMACSHA256.HashData(
             Encoding.UTF8.GetBytes(responseKey),
             Encoding.UTF8.GetBytes(canonical));
-        return Uri.EscapeDataString(Convert.ToBase64String(hash));
+        return Convert.ToBase64String(hash);
     }
 }
