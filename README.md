@@ -101,7 +101,7 @@ Example request:
 }
 \`\`\`
 
-The response is HDFC's actual response. It should contain the order status and payment link/SDK payload as defined by HDFC. Use the returned payment link; do not construct one yourself.
+The service sends a real authenticated request to HDFC's `/session` endpoint using Basic Auth (API key as username, empty password), `x-merchantid`, and `x-routing-id`. The response is HDFC's actual response. It should contain the order status and payment link/SDK payload as defined by HDFC. Use the returned payment link; do not construct one yourself.
 
 ## Check order status
 
