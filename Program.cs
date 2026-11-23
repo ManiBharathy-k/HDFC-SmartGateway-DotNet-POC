@@ -1,221 +1,195 @@
-using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHttpClient("HdfcGateway", client =>
+{
+    var timeout = int.TryParse(
+        Environment.GetEnvironmentVariable("HDFC_TIMEOUT_SECONDS"), out var seconds)
+        ? Math.Clamp(seconds, 5, 120)
+        : 30;
+    client.Timeout = TimeSpan.FromSeconds(timeout);
+});
+
 var app = builder.Build();
 
-var payments = new ConcurrentDictionary<string, Payment>();
-var publicBaseUrl = builder.Configuration["Payment:PublicBaseUrl"]
-    ?? "http://localhost:5000";
-
-// Home / health
 app.MapGet("/", () => Results.Ok(new
 {
-    Application = "HDFC SmartGateway .NET POC",
-    Mode = "MOCK",
-    Status = "Running",
-    Endpoints = new[]
+    application = "HDFC SmartGateway .NET Integration",
+    mode = "SANDBOX",
+    status = "Running",
+    endpoints = new[]
     {
-        "POST /api/payment/create",
-        "GET /api/payment/status/{orderId}",
-        "GET /mock-checkout/{orderId}",
-        "POST /api/payment/mock-complete/{orderId}",
-        "GET /api/payment/return",
-        "POST /api/payment/callback"
+        "POST /api/payments/create",
+        "GET /api/payments/status/{orderId}",
+        "GET /health"
     }
 }));
 
-// Create a local mock order. This does NOT call HDFC.
-app.MapPost("/api/payment/create", (CreatePaymentRequest request) =>
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
+// Sends the supplied HDFC request JSON to the configured sandbox create-order endpoint.
+// The JSON contract is intentionally supplied by the caller, following the merchant's
+// exact HDFC Basic Auth API reference; no undocumented request fields are invented.
+app.MapPost("/api/payments/create", async (
+    JsonElement payload,
+    IHttpClientFactory clients,
+    HttpContext context,
+    CancellationToken cancellationToken) =>
 {
-    if (request.Amount <= 0)
-        return Results.BadRequest(new { message = "Amount must be greater than zero." });
+    if (payload.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+        return Results.BadRequest(new { error = "A JSON request body is required." });
 
-    if (string.IsNullOrWhiteSpace(request.Email))
-        return Results.BadRequest(new { message = "Customer email is required." });
+    var config = GatewayConfig.Load();
+    var configError = config.Validate(requireCreatePath: true);
+    if (configError is not null)
+        return Results.Problem(title: "HDFC sandbox configuration is incomplete",
+            detail: configError, statusCode: StatusCodes.Status503ServiceUnavailable);
 
-    var orderId = "POC_" + Guid.NewGuid().ToString("N")[..16];
-
-    var payment = new Payment
-    {
-        OrderId = orderId,
-        Amount = request.Amount,
-        Currency = string.IsNullOrWhiteSpace(request.Currency)
-            ? "INR"
-            : request.Currency.Trim().ToUpperInvariant(),
-        Email = request.Email.Trim(),
-        CustomerName = request.CustomerName?.Trim() ?? "",
-        Status = "PENDING",
-        CreatedAtUtc = DateTime.UtcNow
-    };
-
-    payments[orderId] = payment;
-
-    return Results.Ok(new
-    {
-        success = true,
-        mode = "MOCK",
-        message = "Local mock order created. No request was sent to HDFC.",
-        orderId,
-        payment.Amount,
-        payment.Currency,
-        payment.Status,
-        checkoutUrl = $"{publicBaseUrl}/mock-checkout/{orderId}",
-        returnUrl = $"{publicBaseUrl}/api/payment/return"
-    });
+    return await ForwardAsync(
+        clients.CreateClient("HdfcGateway"),
+        config,
+        HttpMethod.Post,
+        config.CreateOrderPath!,
+        payload.GetRawText(),
+        context,
+        cancellationToken);
 });
 
-// Mock checkout page
-app.MapGet("/mock-checkout/{orderId}", (string orderId) =>
+// The status path is configured as a template, for example:
+// /the/documented/path/{orderId}. The exact path must come from HDFC's API reference.
+app.MapGet("/api/payments/status/{orderId}", async (
+    string orderId,
+    IHttpClientFactory clients,
+    HttpContext context,
+    CancellationToken cancellationToken) =>
 {
-    if (!payments.TryGetValue(orderId, out var payment))
-        return Results.NotFound("Order not found.");
+    var config = GatewayConfig.Load();
+    var configError = config.Validate(requireCreatePath: false);
+    if (configError is not null)
+        return Results.Problem(title: "HDFC sandbox configuration is incomplete",
+            detail: configError, statusCode: StatusCodes.Status503ServiceUnavailable);
 
-    if (payment.Status != "PENDING")
-        return Results.Conflict("This order has already been processed.");
+    if (string.IsNullOrWhiteSpace(config.OrderStatusPathTemplate))
+        return Results.Problem(title: "HDFC status endpoint is not configured",
+            detail: "Set HDFC_ORDER_STATUS_PATH_TEMPLATE to the exact status path from HDFC's API reference.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
 
-    var html = $$"""
-    <!doctype html>
-    <html lang="en">
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>Payment Demo</title>
-      <style>
-        body{font-family:Arial,sans-serif;background:#f3f4f6;display:grid;
-             place-items:center;min-height:95vh;margin:0}
-        .card{background:#fff;padding:28px;border-radius:12px;width:min(360px,85vw);
-              box-shadow:0 8px 30px #0001;text-align:center}
-        button{width:100%;padding:13px;margin-top:12px;border:0;border-radius:7px;
-               cursor:pointer;font-size:15px}
-        .success{background:#15803d;color:white}
-        .failure{background:#b91c1c;color:white}
-        small{color:#666}
-      </style>
-    </head>
-    <body>
-      <main class="card">
-        <h2>Mock Payment Checkout</h2>
-        <h1>{{payment.Amount}} {{payment.Currency}}</h1>
-        <p>Order: {{payment.OrderId}}</p>
-        <p>{{payment.CustomerName}}</p>
-        <small>Local demonstration only. This is not an HDFC checkout page.</small>
-        <button class="success" onclick="complete('SUCCESS')">Simulate Success</button>
-        <button class="failure" onclick="complete('FAILED')">Simulate Failure</button>
-        <p id="result" role="status"></p>
-      </main>
-      <script>
-        async function complete(status) {
-          const response = await fetch('/api/payment/mock-complete/{{orderId}}', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({status})
-          });
-          const data = await response.json();
-          document.getElementById('result').textContent =
-            response.ok ? 'Mock payment: ' + data.status :
-            (data.message || 'Unable to process mock payment');
-          if (response.ok) {
-            setTimeout(() => {
-              location.href = '/api/payment/return?orderId={{orderId}}';
-            }, 800);
-          }
-        }
-      </script>
-    </body>
-    </html>
-    """;
+    var path = config.OrderStatusPathTemplate.Replace(
+        "{orderId}", Uri.EscapeDataString(orderId), StringComparison.Ordinal);
 
-    return Results.Content(html, "text/html; charset=utf-8");
+    return await ForwardAsync(
+        clients.CreateClient("HdfcGateway"),
+        config,
+        HttpMethod.Get,
+        path,
+        body: null,
+        context,
+        cancellationToken);
 });
-
-// Mock-only payment completion. Never expose this endpoint in production.
-app.MapPost("/api/payment/mock-complete/{orderId}",
-    (string orderId, MockPaymentRequest request) =>
-{
-    if (!payments.TryGetValue(orderId, out var payment))
-        return Results.NotFound(new { message = "Order not found." });
-
-    if (payment.Status != "PENDING")
-        return Results.Conflict(new { message = "Order has already been processed." });
-
-    var requestedStatus = request.Status?.Trim().ToUpperInvariant();
-    if (requestedStatus is not ("SUCCESS" or "FAILED"))
-        return Results.BadRequest(new { message = "Status must be SUCCESS or FAILED." });
-
-    payment.Status = requestedStatus;
-    payment.UpdatedAtUtc = DateTime.UtcNow;
-
-    return Results.Ok(new
-    {
-        success = true,
-        mode = "MOCK",
-        payment.OrderId,
-        payment.Status
-    });
-});
-
-// Local status lookup. In real integration, status must be verified server-to-server.
-app.MapGet("/api/payment/status/{orderId}", (string orderId) =>
-{
-    if (!payments.TryGetValue(orderId, out var payment))
-        return Results.NotFound(new { message = "Order not found." });
-
-    return Results.Ok(new
-    {
-        payment.OrderId,
-        payment.Amount,
-        payment.Currency,
-        payment.Status,
-        payment.CreatedAtUtc,
-        payment.UpdatedAtUtc
-    });
-});
-
-// Browser return URL. A redirect is NOT proof of payment.
-app.MapGet("/api/payment/return", (string orderId) =>
-{
-    if (!payments.TryGetValue(orderId, out var payment))
-        return Results.NotFound(new { message = "Order not found." });
-
-    return Results.Ok(new
-    {
-        message = "Return received. Verify payment status on the server.",
-        payment.OrderId,
-        payment.Status,
-        statusEndpoint = $"/api/payment/status/{orderId}"
-    });
-});
-
-// Placeholder: do not accept or trust unsigned/unverified callbacks.
-app.MapPost("/api/payment/callback", () =>
-    Results.Problem(
-        title: "Gateway callback is not configured",
-        detail: "Implement HDFC's documented callback authentication, signature verification, and payload validation before enabling this endpoint.",
-        statusCode: StatusCodes.Status501NotImplemented));
 
 app.Run();
 
-public sealed class CreatePaymentRequest
+static async Task<IResult> ForwardAsync(
+    HttpClient client,
+    GatewayConfig config,
+    HttpMethod method,
+    string path,
+    string? body,
+    HttpContext context,
+    CancellationToken cancellationToken)
 {
-    public decimal Amount { get; set; }
-    public string Currency { get; set; } = "INR";
-    public string Email { get; set; } = "";
-    public string? CustomerName { get; set; }
+    if (!path.StartsWith("/", StringComparison.Ordinal) ||
+        path.StartsWith("//", StringComparison.Ordinal) ||
+        path.Contains("://", StringComparison.Ordinal))
+    {
+        return Results.Problem(title: "Invalid gateway path",
+            detail: "Gateway paths must be relative API paths beginning with one slash.",
+            statusCode: StatusCodes.Status500InternalServerError);
+    }
+
+    var target = new Uri(config.BaseUrl!, path.TrimStart('/'));
+    using var request = new HttpRequestMessage(method, target);
+
+    var credentials = Convert.ToBase64String(
+        Encoding.UTF8.GetBytes($"{config.Username}:{config.Password}"));
+    request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+    if (!string.IsNullOrWhiteSpace(config.MerchantHeaderName) &&
+        !string.IsNullOrWhiteSpace(config.MerchantId))
+    {
+        request.Headers.TryAddWithoutValidation(
+            config.MerchantHeaderName, config.MerchantId);
+    }
+
+    if (body is not null)
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+    try
+    {
+        using var response = await client.SendAsync(
+            request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        var contentType = response.Content.Headers.ContentType?.ToString()
+            ?? "application/json";
+
+        context.Response.Headers.CacheControl = "no-store";
+        return Results.Content(
+            responseBody,
+            contentType,
+            statusCode: (int)response.StatusCode);
+    }
+    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+    {
+        return Results.Problem(title: "HDFC sandbox request timed out",
+            statusCode: StatusCodes.Status504GatewayTimeout);
+    }
+    catch (HttpRequestException ex)
+    {
+        // Do not log or return credentials. The exception message is limited to transport details.
+        return Results.Problem(title: "Unable to reach HDFC sandbox",
+            detail: ex.Message,
+            statusCode: StatusCodes.Status502BadGateway);
+    }
 }
 
-public sealed class MockPaymentRequest
+sealed record GatewayConfig(
+    string? BaseUrl,
+    string? Username,
+    string? Password,
+    string? MerchantId,
+    string? MerchantHeaderName,
+    string? CreateOrderPath,
+    string? OrderStatusPathTemplate)
 {
-    public string? Status { get; set; }
-}
+    public static GatewayConfig Load() => new(
+        Environment.GetEnvironmentVariable("HDFC_BASE_URL"),
+        Environment.GetEnvironmentVariable("HDFC_BASIC_AUTH_USERNAME"),
+        Environment.GetEnvironmentVariable("HDFC_BASIC_AUTH_PASSWORD"),
+        Environment.GetEnvironmentVariable("HDFC_MERCHANT_ID"),
+        Environment.GetEnvironmentVariable("HDFC_MERCHANT_HEADER_NAME"),
+        Environment.GetEnvironmentVariable("HDFC_CREATE_ORDER_PATH"),
+        Environment.GetEnvironmentVariable("HDFC_ORDER_STATUS_PATH_TEMPLATE"));
 
-public sealed class Payment
-{
-    public string OrderId { get; set; } = "";
-    public decimal Amount { get; set; }
-    public string Currency { get; set; } = "INR";
-    public string Email { get; set; } = "";
-    public string CustomerName { get; set; } = "";
-    public string Status { get; set; } = "PENDING";
-    public DateTime CreatedAtUtc { get; set; }
-    public DateTime? UpdatedAtUtc { get; set; }
+    public string? Validate(bool requireCreatePath)
+    {
+        if (!Uri.TryCreate(BaseUrl, UriKind.Absolute, out var baseUri) ||
+            (baseUri.Scheme != Uri.UriSchemeHttps &&
+             !baseUri.IsLoopback))
+            return "Set HDFC_BASE_URL to the official HTTPS sandbox base URL.";
+
+        if (string.IsNullOrWhiteSpace(Username) ||
+            string.IsNullOrWhiteSpace(Password))
+            return "Set HDFC_BASIC_AUTH_USERNAME and HDFC_BASIC_AUTH_PASSWORD.";
+
+        if (requireCreatePath && string.IsNullOrWhiteSpace(CreateOrderPath))
+            return "Set HDFC_CREATE_ORDER_PATH to the exact create-order path from HDFC's API reference.";
+
+        return null;
+    }
 }
