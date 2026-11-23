@@ -1,128 +1,158 @@
-# HDFC SmartGateway – .NET Sandbox Integration
+# HDFC SmartGateway – .NET 8 Sandbox Integration
 
-A single-file ASP.NET Core integration adapter for sending **real HTTP requests to the HDFC SmartGateway sandbox** using HTTP Basic Authentication.
+A real server-to-server integration with the HDFC SmartGateway UAT environment. It creates HDFC payment sessions, returns the HDFC-hosted checkout link, fetches authoritative order status, and verifies signed browser-return parameters.
 
-> **Sandbox only.** This project no longer contains a local mock checkout or simulated payment completion. It forwards the JSON request you provide to the configured HDFC sandbox endpoint and returns HDFC's HTTP response. It does not invent HDFC request fields, endpoint paths, or callback verification rules.
+**Environment:** HDFC UAT only. The app refuses a non-UAT host. No local mock checkout or fake payment-success endpoint is included.
+
+## HDFC configuration supplied
+
+The repository uses these non-secret sandbox defaults:
+
+- Base URL: \`https://smartgateway.hdfcuat.bank.in\`
+- Merchant ID: \`SG6695\`
+- Payment page client ID: \`hdfcmaster\`
+- Logging: \`false\`
+
+The API key was blank in the configuration shared with us. The response key was masked as \`******CF2C\`. Enter both actual values locally in \`.env\`; never commit them.
 
 ## Requirements
 
-- .NET 8 SDK or later
-- HDFC SmartGateway sandbox access
-- The merchant's **SmartGateway API Reference (Basic Authentication)** and issued sandbox credentials
-- Postman or curl
+- .NET 8 SDK
+- HDFC SmartGateway UAT merchant access
+- API key and response key from the HDFC/Juspay merchant dashboard
+- A public HTTPS return URL on your application (localhost is not reachable by HDFC servers)
 
-## Configure environment
+## Setup
 
-Copy `.env.example` to `.env` and fill in the values supplied by HDFC. Never commit `.env`.
+Clone:
 
-The exact sandbox base URL, endpoint paths, Basic Auth username format, optional merchant header, and JSON body must come from the merchant's HDFC onboarding pack/API reference. Do not use production URLs or credentials for sandbox testing.
+\`\`\`bash
+git clone https://github.com/ManiBharathy-k/HDFC-SmartGateway-DotNet-POC.git
+cd HDFC-SmartGateway-DotNet-POC
+\`\`\`
 
-| Variable | Purpose |
-|---|---|
-| `HDFC_BASE_URL` | Official sandbox API base URL |
-| `HDFC_BASIC_AUTH_USERNAME` | Exact Basic Auth username issued/documented by HDFC |
-| `HDFC_BASIC_AUTH_PASSWORD` | Sandbox API password |
-| `HDFC_MERCHANT_ID` | Merchant ID, if required as a separate header |
-| `HDFC_MERCHANT_HEADER_NAME` | Exact header name, only if required by the selected API |
-| `HDFC_CREATE_ORDER_PATH` | Exact create-order API path |
-| `HDFC_ORDER_STATUS_PATH_TEMPLATE` | Exact status API path, using `{orderId}` where the order ID belongs |
-| `HDFC_TIMEOUT_SECONDS` | Optional HTTP timeout (default 30 seconds) |
+Copy \`.env.example\` to \`.env\` and fill in the API key, response key, and return URL.
 
-These are application environment variable names. They are not claims about HDFC's required header names or request schema.
+### PowerShell
 
-### Load the .env file
-
-The .NET runtime does not load `.env` files automatically. On PowerShell, load the file into the current terminal session:
-
-```powershell
+\`\`\`powershell
+Copy-Item .env.example .env
 Get-Content .env | Where-Object { $_ -match '^\s*[^#].+=' } | ForEach-Object {
     $parts = $_ -split '=', 2
     [Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim().Trim('"'), 'Process')
 }
 dotnet run --urls http://localhost:5000
-```
+\`\`\`
 
-On bash/zsh:
+### Bash
 
-```bash
+\`\`\`bash
+cp .env.example .env
 set -a
 source .env
 set +a
 dotnet run --urls http://localhost:5000
-```
+\`\`\`
 
-## Run
+The .NET app does not automatically read \`.env\`; use one of the loading methods above or configure equivalent environment variables in your hosting platform.
 
-Clone this repository and run it directly:
+## Environment variables
 
-```bash
-git clone https://github.com/ManiBharathy-k/HDFC-SmartGateway-DotNet-POC.git
-cd HDFC-SmartGateway-DotNet-POC
-```
+| Variable | Meaning |
+|---|---|
+| \`HDFC_BASE_URL\` | UAT API base URL; defaults to the supplied HDFC UAT host |
+| \`HDFC_MERCHANT_ID\` | Merchant ID; defaults to \`SG6695\` |
+| \`HDFC_API_KEY\` | API key used as the Basic Auth username; required |
+| \`HDFC_PAYMENT_PAGE_CLIENT_ID\` | \`hdfcmaster\` for UAT |
+| \`HDFC_RESPONSE_KEY\` | Response key used for signed return verification; required to verify returns |
+| \`HDFC_RETURN_URL\` | Example value is in \`.env.example\`; use the same URL in the API request body |
+| \`HDFC_API_VERSION\` | API version header; defaults to \`2024-06-24\` |
+| \`HDFC_ENABLE_LOGGING\` | \`false\` by default; when true logs method/path/status only |
+| \`HDFC_TIMEOUT_SECONDS\` | HTTP timeout, default 30 |
 
-Configure environment variables as described above, then run:
+## Payment flow
 
-```bash
-dotnet run --urls http://localhost:5000
-```
+1. Your backend creates an order in its own database and generates a unique alphanumeric order ID (maximum 20 characters).
+2. Your backend calls \`POST /api/payments/session\` with amount, customer details, and the public HTTPS return URL.
+3. This application sends a real authenticated \`POST /session\` request to HDFC UAT.
+4. HDFC creates the order and responds with \`payment_links\` and/or \`sdk_payload\`.
+5. Your frontend opens the HDFC-provided payment link (or uses the SDK payload in the appropriate frontend SDK).
+6. HDFC redirects the customer to the return URL.
+7. Verify the signed return parameters, then call the HDFC order-status endpoint. Only mark the order paid after the server-side HDFC status confirms the successful terminal state.
 
-## API endpoints
+## Create a payment session
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/health` | Local application health |
-| POST | `/api/payments/create` | Forwards JSON to the configured HDFC sandbox create-order endpoint |
-| GET | `/api/payments/status/{orderId}` | Forwards to the configured HDFC sandbox status endpoint |
+**POST** \`http://localhost:5000/api/payments/session\`
 
-## Create an HDFC sandbox order
+Example request:
 
-**POST** `http://localhost:5000/api/payments/create`
-
-Send the exact JSON request body specified in the merchant's HDFC Basic Auth API reference. Example structure only:
-
-```json
+\`\`\`json
 {
-  "REPLACE_WITH_FIELDS_FROM_HDFC_DOCUMENTATION": "Use the exact documented request schema"
+  "orderId": "ORD202611230001",
+  "amount": 10.00,
+  "currency": "INR",
+  "customerId": "CUSTOMER1001",
+  "customerEmail": "customer@example.com",
+  "customerPhone": "9876543210",
+  "returnUrl": "https://your-public-domain.example/api/payments/return",
+  "firstName": "Test",
+  "lastName": "Customer",
+  "description": "Sandbox payment test"
 }
-```
+\`\`\`
 
-The service sends that JSON to `HDFC_BASE_URL + HDFC_CREATE_ORDER_PATH` using HTTP Basic Authentication. It returns HDFC's response body and HTTP status code to the caller.
+The response is HDFC's actual response. It should contain the order status and payment link/SDK payload as defined by HDFC. Use the returned payment link; do not construct one yourself.
 
-## Check payment status
+## Check order status
 
-**GET** `http://localhost:5000/api/payments/status/{orderId}`
+**GET** \`http://localhost:5000/api/payments/status/ORD202611230001?customerId=CUSTOMER1001\`
 
-The application replaces `{orderId}` in `HDFC_ORDER_STATUS_PATH_TEMPLATE` with the URL-encoded order ID and calls the configured HDFC sandbox API.
+This makes an authenticated server-to-server request to:
 
-## Checkout, return URL, and webhooks
+\`\`\`
+GET https://smartgateway.hdfcuat.bank.in/orders/{order_id}
+\`\`\`
 
-This API adapter deliberately does not fabricate a checkout URL or callback contract. Implement the browser redirect using the exact checkout/redirect field returned by HDFC's create-order response and its Basic Auth documentation.
+The same routing/customer ID used for the session should be supplied when checking status. The response is HDFC's actual order-status response.
 
-A browser return/redirect is not proof of payment. Confirm the final transaction state using HDFC's documented server-side status API.
+## Return URL signature verification
 
-Configure the public HTTPS return URL and webhook/notification URL with HDFC only where required by the merchant integration. Callback authentication, signature verification, event schema, and retry/idempotency behavior must be implemented from the exact HDFC documentation before accepting callbacks. No unverified callback endpoint is enabled in this starter.
+HDFC's signed return flow uses \`signature\` and \`signature_algorithm\` query parameters. This implementation supports \`HMAC-SHA256\` using the configured response key and HDFC's documented canonicalization:
 
-## Security notes
+- Exclude \`signature\` and \`signature_algorithm\`.
+- URL-encode parameter keys and values.
+- Sort by encoded key.
+- Join as \`key=value\` pairs with ampersands.
+- URL-encode the joined string.
+- Calculate HMAC-SHA256 using the response key.
+- Base64-encode and URL-encode the hash before comparing.
 
-- Keep `.env` out of Git. The repository ignores it.
-- Never commit merchant credentials, API passwords, signing keys, or certificates.
-- Use sandbox credentials only during sandbox testing.
-- Do not expose this backend's gateway proxy as an unrestricted public proxy. Add application authentication, authorization, rate limiting, request validation, and audit logging before deployment.
-- Do not log Authorization headers or secrets.
-- Use HTTPS for public deployments.
-- Validate payment amount/order ownership on your server; do not trust client-submitted payment status.
+The endpoint returns whether the signature was valid. **A valid redirect signature is not itself proof that an order is paid.** Always query HDFC order status before fulfilling goods/services.
 
-## Official documentation
+Enable signed responses in the HDFC merchant dashboard if required for this flow. The return URL must be a public HTTPS endpoint, have no query parameters in the configured base URL, and must not redirect to another URL.
 
-- [HDFC SmartGateway Developer Docs](https://smartgateway.hdfc.bank.in/docs/)
-- [SmartGateway API Reference – Basic Authentication](https://smartgateway.hdfc.bank.in/docs/smartgateway-api-ref-basicauth/docs/overview/integration-architecture)
+## Security and production readiness
 
-Use the merchant's current API reference/onboarding details as the authority for the exact endpoint URLs, request/response fields, authentication format, checkout flow, and callback behavior.
+- \`.env\` is ignored by Git. Do not commit API keys or response keys.
+- Never expose credentials to browser/mobile clients.
+- Keep UAT and production credentials and URLs separate.
+- This build is intentionally UAT-only. Do not switch the base URL to production without a separate production review and explicit code/config changes.
+- The API endpoints in this POC are a development integration surface. Before public deployment, add your application's authentication/authorization, order ownership checks, rate limiting, durable order persistence, structured redacted audit logs, and monitoring.
+- Do not trust a client-supplied amount or mark an order paid based on a browser redirect.
+- Do not log Authorization headers, API keys, response keys, or full sensitive payment payloads.
 
-## Current scope
+## Not yet included
 
-This is a real sandbox HTTP adapter, not a finished production payment integration. It makes outbound authenticated calls when correctly configured. The actual request schema, checkout redirect handling, transaction state mapping, and verified webhook processing must be completed against the merchant's exact HDFC Basic Auth API contract.
+This POC covers session creation, order status lookup, and signed return verification. Refunds, cancellations, capture/void flows, webhook event handling, frontend SDK integration, and durable merchant order storage should be added only against the merchant's exact enabled HDFC product/API specification.
+
+## Documentation
+
+- [HDFC SmartGateway developer portal](https://smartgateway.hdfc.bank.in/docs/)
+- [HDFC SmartGateway API reference – Basic Authentication](https://smartgateway.hdfc.bank.in/docs/smartgateway-api-ref-basicauth/docs/overview/integration-architecture)
+- [HDFC SmartGateway session API overview](https://juspay.io/in/docs/smartgateway-api-reference/docs/apis/session)
+- [HDFC order status API reference](https://juspay.io/sea/docs/api-reference/docs/express-checkout/get-offer-order-status)
+- [HDFC signed return URL verification](https://juspay.io/sea/docs/hypercheckout-mobile-sdk/web/resources/hmac-signature-verification-for-return-url)
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT.
