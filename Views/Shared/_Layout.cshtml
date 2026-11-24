@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewBag.Title - HDFC SmartGateway POC</title>
+    <link href="~/Content/site.css" rel="stylesheet" />
+</head>
+<body>
+    <header class="topbar">
+        <div class="container">
+            <a class="brand" href="@Url.Action("Index", "Home")">HDFC SmartGateway POC</a>
+            <nav>
+                @Html.ActionLink("Home", "Index", "Home")
+                @Html.ActionLink("Create Payment", "Create", "Payment")
+                @Html.ActionLink("Check Status", "Status", "Payment")
+            </nav>
+        </div>
+    </header>
+    <main class="container">
+        @RenderBody()
+    </main>
+    <footer class="container muted">HDFC UAT only · Never treat a browser return as proof of payment.</footer>
+</body>
+</html>
