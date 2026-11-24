@@ -1,7 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-  </PropertyGroup>
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<PropertyGroup><Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration><Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform><ProjectGuid>{8C42B7E1-0D12-4D21-A7D2-5D8A5A1A10B1}</ProjectGuid><OutputType>Library</OutputType><RootNamespace>HDFCSmartGateway</RootNamespace><AssemblyName>HDFCSmartGateway</AssemblyName><TargetFrameworkVersion>v4.8</TargetFrameworkVersion><LangVersion>7.3</LangVersion></PropertyGroup>
+<ItemGroup><Reference Include="System"/><Reference Include="System.Core"/><Reference Include="System.Configuration"/><Reference Include="System.Net.Http"/><Reference Include="System.Web"/><Reference Include="System.Web.Mvc, Version=5.2.9.0, Culture=neutral, PublicKeyToken=31BF3856AD364E35"/><Reference Include="Newtonsoft.Json"/></ItemGroup>
+<ItemGroup><Compile Include="Global.asax.cs"/><Compile Include="App_Start\RouteConfig.cs"/><Compile Include="Controllers\HomeController.cs"/><Compile Include="Controllers\PaymentController.cs"/><Compile Include="Models\PaymentModels.cs"/><Compile Include="Services\HdfcSettings.cs"/><Compile Include="Services\HdfcPaymentService.cs"/></ItemGroup>
+<ItemGroup><Content Include="Global.asax"/><Content Include="Web.config"/><Content Include="Content\site.css"/><Content Include="Views\**\*.cshtml"/><Content Include="packages.config"/></ItemGroup>
+<Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets"/>
 </Project>

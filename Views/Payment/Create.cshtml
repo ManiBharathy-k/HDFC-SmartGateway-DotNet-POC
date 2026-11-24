@@ -1,23 +1,13 @@
-@model HDFCSmartGateway.Models.CreatePaymentViewModel
-@{
-    ViewBag.Title = "Create Payment";
-}
+@model HDFCSmartGateway.Models.CreatePaymentModel
 <h1>Create HDFC UAT payment</h1>
-<p class="muted">This submits a real request to the configured HDFC UAT endpoint. Do not use real customer payment data.</p>
-@using (Html.BeginForm("Create", "Payment", FormMethod.Post))
-{
-    @Html.AntiForgeryToken()
-    @Html.ValidationSummary(false, "", new { @class = "validation" })
-    <div class="form-grid">
-        <div>@Html.LabelFor(m => m.OrderId) @Html.TextBoxFor(m => m.OrderId, new { placeholder = "ORD202611240001" }) @Html.ValidationMessageFor(m => m.OrderId)</div>
-        <div>@Html.LabelFor(m => m.Amount) @Html.TextBoxFor(m => m.Amount, new { type = "number", step = "0.01", min = "0.01" }) @Html.ValidationMessageFor(m => m.Amount)</div>
-        <div>@Html.LabelFor(m => m.CustomerId) @Html.TextBoxFor(m => m.CustomerId)</div>
-        <div>@Html.LabelFor(m => m.CustomerEmail) @Html.TextBoxFor(m => m.CustomerEmail, new { type = "email" }) @Html.ValidationMessageFor(m => m.CustomerEmail)</div>
-        <div>@Html.LabelFor(m => m.CustomerPhone) @Html.TextBoxFor(m => m.CustomerPhone)</div>
-        <div>@Html.LabelFor(m => m.FirstName) @Html.TextBoxFor(m => m.FirstName)</div>
-        <div>@Html.LabelFor(m => m.LastName) @Html.TextBoxFor(m => m.LastName)</div>
-        <div>@Html.LabelFor(m => m.Description) @Html.TextBoxFor(m => m.Description)</div>
-        <div class="wide">@Html.LabelFor(m => m.ReturnUrl) @Html.TextBoxFor(m => m.ReturnUrl, new { placeholder = "https://your-domain.example/Payment/Return" }) @Html.ValidationMessageFor(m => m.ReturnUrl)</div>
-    </div>
-    <button class="button" type="submit">Create HDFC session</button>
-}
+@using(Html.BeginForm()){ @Html.AntiForgeryToken() @Html.ValidationSummary()
+<label>Order ID</label>@Html.TextBoxFor(x=>x.OrderId)
+<label>Amount INR</label>@Html.TextBoxFor(x=>x.Amount)
+<label>Customer ID</label>@Html.TextBoxFor(x=>x.CustomerId)
+<label>Email</label>@Html.TextBoxFor(x=>x.CustomerEmail)
+<label>Phone</label>@Html.TextBoxFor(x=>x.CustomerPhone)
+<label>First name</label>@Html.TextBoxFor(x=>x.FirstName)
+<label>Last name</label>@Html.TextBoxFor(x=>x.LastName)
+<label>Description</label>@Html.TextBoxFor(x=>x.Description)
+<label>Public HTTPS return URL</label>@Html.TextBoxFor(x=>x.ReturnUrl)
+<button type="submit">Create HDFC session</button> }

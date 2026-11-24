@@ -1,7 +1,1 @@
-@{
-    ViewBag.Title = "HDFC Order Status";
-}
-<h1>HDFC order status response</h1>
-<p><strong>Order ID:</strong> @ViewBag.OrderId</p>
-<pre>@ViewBag.GatewayResponse</pre>
-<p class="notice">Interpret the status according to the merchant's HDFC API specification. Do not infer success from the return URL.</p>
+<h1>HDFC status response</h1><p>Order: @ViewBag.OrderId</p><pre>@ViewBag.Raw</pre>

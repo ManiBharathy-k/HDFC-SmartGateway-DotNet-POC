@@ -1,22 +1,17 @@
-# Build output
-bin/
-obj/
-out/
-
-# IDE
+# Visual Studio
 .vs/
 .vscode/
-.idea/
 *.user
 *.suo
-
-# Local secrets and environment files
+bin/
+obj/
+packages/
+TestResults/
+# Secrets
 .env
 .env.*
 !.env.example
-secrets.json
-appsettings.Development.json
-
+Web.config.local
 # OS
 .DS_Store
 Thumbs.db

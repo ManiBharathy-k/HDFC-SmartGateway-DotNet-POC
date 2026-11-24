@@ -1,158 +1,35 @@
-# HDFC SmartGateway – .NET 8 Sandbox Integration
+# HDFC SmartGateway – ASP.NET MVC 5 (.NET Framework 4.8)
 
-A real server-to-server integration with the HDFC SmartGateway UAT environment. It creates HDFC payment sessions, returns the HDFC-hosted checkout link, fetches authoritative order status, and verifies signed browser-return parameters.
+Migrated from .NET 8 Minimal API to the classic Visual Studio ASP.NET Web Application (.NET Framework) MVC template.
 
-**Environment:** HDFC UAT only. The app refuses a non-UAT host. No local mock checkout or fake payment-success endpoint is included.
+## Visual Studio
+- Template: ASP.NET Web Application (.NET Framework)
+- Framework: .NET Framework 4.8
+- Template: MVC
+- Authentication: No Authentication
+- NuGet: Microsoft.AspNet.Mvc 5.2.9 and Newtonsoft.Json 13.0.3
 
-## HDFC configuration supplied
+## Configure UAT
+Set as Windows/user or IIS application-pool environment variables. Classic ASP.NET does not automatically load .env files:
+- HDFC_BASE_URL=https://smartgateway.hdfcuat.bank.in
+- HDFC_MERCHANT_ID=SG6695
+- HDFC_API_KEY=actual merchant API key (never commit)
+- HDFC_PAYMENT_PAGE_CLIENT_ID=hdfcmaster
+- HDFC_RESPONSE_KEY=full response key only if signed returns are enabled
+- HDFC_RETURN_URL=https://your-public-host/Payment/Return
+- HDFC_SESSION_PATH=/session
+- HDFC_ORDER_STATUS_PATH=/orders/{orderId}
+- HDFC_ROUTING_HEADER_NAME=x-routing-id
 
-The repository uses these non-secret sandbox defaults:
+## Included
+MVC payment form, server-side session request, HDFC payment link response display, return landing page, and server-side order-status lookup.
 
-- Base URL: \`https://smartgateway.hdfcuat.bank.in\`
-- Merchant ID: \`SG6695\`
-- Payment page client ID: \`hdfcmaster\`
-- Logging: \`false\`
+## Critical integration note
+The /session, /orders/{orderId}, Basic Auth construction, x-merchantid, x-routing-id and payload are provisional settings carried forward from the previous POC. They have NOT been confirmed against the exact Basic Authentication Integration Kit enabled for merchant SG6695. Confirm endpoint paths, required headers, payload schema, response schema and status rules with HDFC before testing a payment. Do not mix JWT/encrypted API requirements into a Basic Auth integration.
 
-The API key was blank in the configuration shared with us. The response key was masked as \`******CF2C\`. Enter both actual values locally in \`.env\`; never commit them.
+Response Key is not needed for Basic Auth API authentication. Signed return verification is not implemented in this MVC migration yet. A browser return is never proof of payment; always query HDFC server-to-server before fulfilling an order.
 
-## Requirements
+## Not production-ready
+No persistent order database, auth/order ownership, webhook, idempotency, refund/cancel, or full payment state machine. Do not expose publicly without these controls.
 
-- .NET 8 SDK
-- HDFC SmartGateway UAT merchant access
-- HDFC API key from the merchant dashboard; Response Key only if signed return verification is enabled
-- A public HTTPS return URL on your application (localhost is not reachable by HDFC servers)
-
-## Setup
-
-Clone:
-
-\`\`\`bash
-git clone https://github.com/ManiBharathy-k/HDFC-SmartGateway-DotNet-POC.git
-cd HDFC-SmartGateway-DotNet-POC
-\`\`\`
-
-Copy \`.env.example\` to \`.env\` and fill in the API key, response key, and return URL.
-
-### PowerShell
-
-\`\`\`powershell
-Copy-Item .env.example .env
-Get-Content .env | Where-Object { $_ -match '^\s*[^#].+=' } | ForEach-Object {
-    $parts = $_ -split '=', 2
-    [Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim().Trim('"'), 'Process')
-}
-dotnet run --urls http://localhost:5000
-\`\`\`
-
-### Bash
-
-\`\`\`bash
-cp .env.example .env
-set -a
-source .env
-set +a
-dotnet run --urls http://localhost:5000
-\`\`\`
-
-The .NET app does not automatically read \`.env\`; use one of the loading methods above or configure equivalent environment variables in your hosting platform.
-
-## Environment variables
-
-| Variable | Meaning |
-|---|---|
-| \`HDFC_BASE_URL\` | UAT API base URL; defaults to the supplied HDFC UAT host |
-| \`HDFC_MERCHANT_ID\` | Merchant ID; defaults to \`SG6695\` |
-| \`HDFC_API_KEY\` | API key used as the Basic Auth username; required |
-| \`HDFC_PAYMENT_PAGE_CLIENT_ID\` | \`hdfcmaster\` for UAT |
-| \`HDFC_RESPONSE_KEY\` | Response key used for signed return verification; required to verify returns |
-| \`HDFC_RETURN_URL\` | Example value is in \`.env.example\`; use the same URL in the API request body |
-| \`HDFC_API_VERSION\` | API version header; defaults to \`2024-06-24\` |
-| \`HDFC_ENABLE_LOGGING\` | \`false\` by default; when true logs method/path/status only |
-| \`HDFC_TIMEOUT_SECONDS\` | HTTP timeout, default 30 |
-
-## Payment flow
-
-1. Your backend creates an order in its own database and generates a unique alphanumeric order ID (maximum 20 characters).
-2. Your backend calls \`POST /api/payments/session\` with amount, customer details, and the public HTTPS return URL.
-3. This application sends a real authenticated \`POST /session\` request to HDFC UAT.
-4. HDFC creates the order and responds with \`payment_links\` and/or \`sdk_payload\`.
-5. Your frontend opens the HDFC-provided payment link (or uses the SDK payload in the appropriate frontend SDK).
-6. HDFC redirects the customer to the return URL.
-7. Verify the signed return parameters, then call the HDFC order-status endpoint. Only mark the order paid after the server-side HDFC status confirms the successful terminal state.
-
-## Create a payment session
-
-**POST** \`http://localhost:5000/api/payments/session\`
-
-Example request:
-
-\`\`\`json
-{
-  "orderId": "ORD202611230001",
-  "amount": 10.00,
-  "currency": "INR",
-  "customerId": "CUSTOMER1001",
-  "customerEmail": "customer@example.com",
-  "customerPhone": "9876543210",
-  "returnUrl": "https://your-public-domain.example/api/payments/return",
-  "firstName": "Test",
-  "lastName": "Customer",
-  "description": "Sandbox payment test"
-}
-\`\`\`
-
-The service sends a real authenticated request to the HDFC endpoint currently configured in `Program.cs`, using Basic Auth (API key as username, empty password), `x-merchantid`, and the configured routing/customer ID header. These request details must match the Basic Auth integration guide provisioned for your merchant. The response is passed through from HDFC; use only the payment link returned by HDFC.
-
-## Check order status
-
-**GET** \`http://localhost:5000/api/payments/status/ORD202611230001?customerId=CUSTOMER1001\`
-
-This makes an authenticated server-to-server request to:
-
-\`\`\`
-GET https://smartgateway.hdfcuat.bank.in/orders/{order_id}
-\`\`\`
-
-The same routing/customer ID used for the session should be supplied when checking status. The response is HDFC's actual order-status response.
-
-## Return URL signature verification
-
-HDFC's signed return flow uses \`signature\` and \`signature_algorithm\` query parameters. This implementation supports \`HMAC-SHA256\` using the configured response key and HDFC's documented canonicalization:
-
-- Exclude \`signature\` and \`signature_algorithm\`.
-- URL-encode parameter keys and values.
-- Sort by encoded key.
-- Join as \`key=value\` pairs with ampersands.
-- URL-encode the joined string.
-- Calculate HMAC-SHA256 using the response key.
-- Base64-encode and URL-encode the hash before comparing.
-
-The endpoint reports whether the signature was valid, or explicitly reports that verification was disabled. **An unverified redirect and a valid redirect signature are both insufficient on their own to prove payment.** Always query HDFC order status server-to-server before fulfilling goods/services.
-
-Enable signed responses in the HDFC merchant dashboard if required for this flow. The return URL must be a public HTTPS endpoint, have no query parameters in the configured base URL, and must not redirect to another URL.
-
-## Security and production readiness
-
-- \`.env\` is ignored by Git. Do not commit API keys or response keys.
-- Never expose credentials to browser/mobile clients.
-- Keep UAT and production credentials and URLs separate.
-- This build is intentionally UAT-only. Do not switch the base URL to production without a separate production review and explicit code/config changes.
-- The API endpoints in this POC are a development integration surface. Before public deployment, add your application's authentication/authorization, order ownership checks, rate limiting, durable order persistence, structured redacted audit logs, and monitoring.
-- Do not trust a client-supplied amount or mark an order paid based on a browser redirect.
-- Do not log Authorization headers, API keys, response keys, or full sensitive payment payloads.
-
-## Not yet included
-
-This POC includes session creation, order status lookup, and optional signed return verification. Refunds, cancellations, capture/void flows, webhook event handling, frontend SDK integration, and durable merchant order storage should be added only against the merchant's exact enabled HDFC product/API specification.
-
-## Documentation
-
-- [HDFC SmartGateway developer portal](https://smartgateway.hdfc.bank.in/docs/)
-- [HDFC SmartGateway API reference – Basic Authentication](https://smartgateway.hdfc.bank.in/docs/smartgateway-api-ref-basicauth/docs/overview/integration-architecture)
-- [HDFC SmartGateway session API overview](https://juspay.io/in/docs/smartgateway-api-reference/docs/apis/session)
-- [HDFC order status API reference](https://juspay.io/sea/docs/api-reference/docs/express-checkout/get-offer-order-status)
-- [HDFC signed return URL verification](https://juspay.io/sea/docs/hypercheckout-mobile-sdk/web/resources/hmac-signature-verification-for-return-url)
-
-## License
-
-MIT.
+Docs: https://smartgateway.hdfc.bank.in/docs/

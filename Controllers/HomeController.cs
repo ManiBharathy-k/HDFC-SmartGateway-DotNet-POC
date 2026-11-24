@@ -1,12 +1,1 @@
-using System.Web.Mvc;
-
-namespace HDFCSmartGateway.Controllers
-{
-    public class HomeController : Controller
-    {
-        public ActionResult Index()
-        {
-            return View();
-        }
-    }
-}
+using System.Web.Mvc; namespace HDFCSmartGateway.Controllers { public class HomeController:Controller { public ActionResult Index(){return View();} } }
