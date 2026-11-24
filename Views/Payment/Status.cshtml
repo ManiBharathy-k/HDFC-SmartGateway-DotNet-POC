@@ -1,0 +1,15 @@
+@model HDFCSmartGateway.Models.PaymentStatusViewModel
+@{
+    ViewBag.Title = "Check Payment Status";
+}
+<h1>Check HDFC order status</h1>
+@using (Html.BeginForm("Status", "Payment", FormMethod.Post))
+{
+    @Html.AntiForgeryToken()
+    @Html.ValidationSummary(false, "", new { @class = "validation" })
+    <div class="form-grid">
+        <div>@Html.LabelFor(m => m.OrderId) @Html.TextBoxFor(m => m.OrderId) @Html.ValidationMessageFor(m => m.OrderId)</div>
+        <div>@Html.LabelFor(m => m.CustomerId) @Html.TextBoxFor(m => m.CustomerId) @Html.ValidationMessageFor(m => m.CustomerId)</div>
+    </div>
+    <button class="button" type="submit">Fetch status from HDFC</button>
+}
