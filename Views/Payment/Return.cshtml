@@ -1,0 +1,13 @@
+@{
+    ViewBag.Title = "Payment Return";
+}
+<h1>Payment return received</h1>
+<p><strong>Order ID:</strong> @ViewBag.OrderId</p>
+<p><strong>Returned status:</strong> @ViewBag.ReturnedStatus</p>
+<p><strong>Signature verification:</strong>
+@if (!(bool)ViewBag.VerificationEnabled) { <span>Disabled</span> }
+else if ((bool)ViewBag.SignatureVerified) { <span class="success">Valid</span> }
+else { <span class="error">Invalid or missing</span> }
+</p>
+<div class="notice">This browser return is not proof of payment. Use Check Status to query HDFC server-to-server and confirm the final status before marking an order paid.</div>
+@Html.ActionLink("Check order status", "Status", "Payment", null, new { @class = "button" })
