@@ -1,0 +1,13 @@
+@{
+    ViewBag.Title = "Home";
+}
+<section class="hero">
+    <p class="eyebrow">ASP.NET MVC 5 · .NET Framework 4.8</p>
+    <h1>HDFC SmartGateway integration</h1>
+    <p>Development interface for creating HDFC UAT payment sessions and checking server-side order status.</p>
+    <div class="actions">
+        @Html.ActionLink("Create test payment", "Create", "Payment", null, new { @class = "button" })
+        @Html.ActionLink("Check payment status", "Status", "Payment", null, new { @class = "button secondary" })
+    </div>
+</section>
+<div class="notice"><strong>Sandbox safety:</strong> This application is restricted to the HDFC UAT hostname. A payment is successful only after the server-side HDFC order-status response confirms it.</div>
