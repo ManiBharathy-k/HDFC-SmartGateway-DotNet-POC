@@ -1,0 +1,17 @@
+@model HDFCSmartGateway.Models.PaymentResultViewModel
+@{
+    ViewBag.Title = "Payment Session Result";
+}
+<h1>HDFC session response</h1>
+<p>@Model.Message</p>
+<p><strong>Order:</strong> @Model.OrderId</p>
+@if (!String.IsNullOrWhiteSpace(Model.PaymentUrl))
+{
+    <p><a class="button" href="@Model.PaymentUrl" target="_blank" rel="noopener noreferrer">Open HDFC payment page</a></p>
+}
+else
+{
+    <p class="notice">No recognized payment link field was found. Inspect the raw HDFC response and confirm the field name in your merchant's Integration Kit documentation.</p>
+}
+<h2>Raw gateway response</h2>
+<pre>@Model.GatewayResponse</pre>
